@@ -188,6 +188,7 @@ a:hover { text-decoration: underline; }
     <button onclick="show('clientes',this)"><i class="ti ti-users"></i> Clientes</button>
     <button onclick="show('mensalidades',this)"><i class="ti ti-currency-dollar"></i> Mensalidades</button>
     <button onclick="show('postagens',this)"><i class="ti ti-calendar"></i> Postagens</button>
+    <button onclick="show('avulsos',this)"><i class="ti ti-tool"></i> Serviços Avulsos</button>
     <button onclick="show('ranking',this)"><i class="ti ti-trending-up"></i> Ranking Google</button>
     <button onclick="show('relatorio',this)"><i class="ti ti-file-text"></i> Relatório</button>
   </div>
@@ -236,6 +237,21 @@ a:hover { text-decoration: underline; }
       <button class="btn btn-sm btn-primary" onclick="openModalPostagem('')"><i class="ti ti-plus"></i> Registrar</button>
     </div>
     <div id="postagens-list"></div>
+  </div>
+
+  <!-- ═══════════════════════════════ AVULSOS ════════════════════════════════ -->
+  <div id="avulsos" class="section">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:12px">
+      <div class="filter-bar" id="avulso-filter" style="margin:0"></div>
+      <button class="btn btn-sm btn-primary" onclick="openModalAvulso(null)"><i class="ti ti-plus"></i> Novo serviço</button>
+    </div>
+    <div id="avulsos-metrics" class="metric-grid" style="margin-bottom:14px"></div>
+    <div class="table-wrap"><div class="table-scroll">
+      <table><thead><tr>
+        <th>Cliente</th><th>Descrição</th><th class="tr">Valor</th><th>Data pedido</th><th>Entrega</th><th>Status</th><th>Obs</th><th></th>
+      </tr></thead><tbody id="avulsos-tbody"></tbody></table>
+    </div></div>
+    <div id="avulsos-total" style="text-align:right;font-size:12px;color:var(--text2);margin-top:8px"></div>
   </div>
 
   <!-- ═══════════════════════════════ RANKING ═════════════════════════════════ -->
@@ -404,6 +420,49 @@ a:hover { text-decoration: underline; }
   </div>
 </div>
 
+<!-- Modal Serviço Avulso -->
+<div class="modal-overlay" id="modal-avulso">
+  <div class="modal">
+    <h2><i class="ti ti-tool"></i> <span id="modal-avulso-title">Serviço Avulso</span></h2>
+    <input type="hidden" id="av-id">
+    <div class="form-row">
+      <div class="form-group"><label>Cliente</label>
+        <input id="av-cliente" list="av-cliente-list" placeholder="Nome do cliente (novo ou existente)">
+        <datalist id="av-cliente-list"></datalist>
+      </div>
+      <div class="form-group"><label>Status</label>
+        <select id="av-status">
+          <option>Em andamento</option>
+          <option>Aguardando aprovação</option>
+          <option>Entregue</option>
+          <option>Pago</option>
+          <option>Cancelado</option>
+        </select>
+      </div>
+    </div>
+    <div class="form-group"><label>Descrição do serviço</label>
+      <input id="av-descricao" placeholder="Ex: Criação de site, Atualização de fotos, Arte para post...">
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Valor cobrado (R$)</label><input id="av-valor" type="number" placeholder="0"></div>
+      <div class="form-group"><label>Forma de pagamento</label>
+        <select id="av-forma"><option>Pix</option><option>Dinheiro</option><option>Transferência</option><option>Cartão</option><option>Pendente</option></select>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Data do pedido</label><input id="av-data-pedido" type="date"></div>
+      <div class="form-group"><label>Data de entrega</label><input id="av-data-entrega" type="date"></div>
+    </div>
+    <div class="form-group"><label>Observações</label>
+      <textarea id="av-obs" rows="2" placeholder="Detalhes, links, anotações..."></textarea>
+    </div>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeModal('modal-avulso')">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvarAvulso()">Salvar</button>
+    </div>
+  </div>
+</div>
+
 <!-- Toast -->
 <div class="toast" id="toast"></div>
 
@@ -457,7 +516,8 @@ const DEFAULT = {
     {id:'r2', termo:'reboque em campos', clientes:[{nome:'Caio Auto Socorro',pos:13},{nome:'TR Reboque',pos:1}], data:'2026-04-05'},
     {id:'r3', termo:'reboque 24h', clientes:[{nome:'Caio Auto Socorro',pos:5},{nome:'TR Reboque',pos:3}], data:'2026-04-05'},
     {id:'r4', termo:'loja de material elétrico e hidráulico campos dos goytacazes', clientes:[{nome:'Ekipseg',pos:6}], data:'2026-04-05'},
-  ]
+  ],
+  avulsos: []
 };
 
 function load() {
@@ -465,7 +525,7 @@ function load() {
   catch(e) { return DEFAULT; }
 }
 function persist() {
-  localStorage.setItem('gestao_clientes_v2', JSON.stringify({clientes,possiveis,pagamentos,postagens,ranking}));
+  localStorage.setItem('gestao_clientes_v2', JSON.stringify({clientes,possiveis,pagamentos,postagens,ranking,avulsos}));
   document.getElementById('last-saved').textContent = 'Salvo às ' + new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
 }
 
@@ -475,6 +535,7 @@ let possiveis = state.possiveis || DEFAULT.possiveis;
 let pagamentos = state.pagamentos || DEFAULT.pagamentos;
 let postagens = state.postagens || DEFAULT.postagens;
 let ranking = state.ranking || DEFAULT.ranking;
+let avulsos = state.avulsos || DEFAULT.avulsos;
 
 // ═══════════════════════════════ UI HELPERS ══════════════════════════════════
 function show(id, btn) {
@@ -482,7 +543,7 @@ function show(id, btn) {
   document.querySelectorAll('.nav button').forEach(b => b.classList.remove('active'));
   document.getElementById(id).classList.add('active');
   btn.classList.add('active');
-  const renders = {dash:renderDash, clientes:renderClientes, mensalidades:renderMensalidades, postagens:renderPostagens, ranking:renderRanking, relatorio:renderRelatorio};
+  const renders = {dash:renderDash, clientes:renderClientes, mensalidades:renderMensalidades, postagens:renderPostagens, avulsos:renderAvulsos, ranking:renderRanking, relatorio:renderRelatorio};
   if (renders[id]) renders[id]();
 }
 function openModal(id) { document.getElementById(id).classList.add('open'); }
@@ -522,6 +583,8 @@ function renderDash() {
     <div class="metric"><label>Em teste</label><div class="val amber">${clientes.filter(c=>c.status==='Em Teste').length}</div></div>
     <div class="metric"><label>Possíveis clientes</label><div class="val blue">${possiveis.length}</div></div>
     <div class="metric"><label>Pot. mensal possíveis</label><div class="val blue">${fmtBRL(totalPot)}</div></div>
+    <div class="metric"><label>Avulsos em aberto</label><div class="val amber">${avulsos.filter(a=>a.status==='Em andamento'||a.status==='Aguardando aprovação').length}</div></div>
+    <div class="metric"><label>Avulsos recebido</label><div class="val green">${fmtBRL(avulsos.filter(a=>a.status==='Pago').reduce((s,a)=>s+(+a.valor||0),0))}</div></div>
   `;
 
   // Alertas de vencimento próximo
@@ -1016,6 +1079,18 @@ function renderRelatorio() {
       }).join('')}</tbody>
     </table></div>
 
+    <div class="divider-label" style="margin-top:18px">Serviços Avulsos — em aberto</div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Cliente</th><th>Descrição</th><th class="tr">Valor</th><th>Pedido</th><th>Entrega</th><th>Status</th></tr></thead>
+      <tbody>${avulsos.filter(a=>a.status!=='Cancelado').map(a=>`<tr>
+        <td>${a.cliente}</td><td>${a.descricao}</td>
+        <td class="tr">${fmtBRL(a.valor)}</td>
+        <td>${fmtDate(a.dataPedido)}</td>
+        <td>${fmtDate(a.dataEntrega)}</td>
+        <td><span class="badge ${AVULSO_BADGE[a.status]||'b-doubt'}">${a.status}</span></td>
+      </tr>`).join('') || '<tr><td colspan="6" style="text-align:center;color:var(--text3)">Nenhum</td></tr>'}</tbody>
+    </table></div>
+
     <div class="divider-label" style="margin-top:18px">Possíveis clientes — Pipeline</div>
     <div class="table-wrap"><table>
       <thead><tr><th>Nome</th><th>Serviços</th><th class="tr">Valor est.</th><th>Status</th></tr></thead>
@@ -1029,9 +1104,109 @@ function renderRelatorio() {
   `;
 }
 
+// ══════════════════════════════════ AVULSOS ═══════════════════════════════════
+const AVULSO_STATUS = ['Todos','Em andamento','Aguardando aprovação','Entregue','Pago','Cancelado'];
+const AVULSO_BADGE = {'Em andamento':'b-wait','Aguardando aprovação':'b-test','Entregue':'b-ok','Pago':'b-ok','Cancelado':'b-doubt'};
+let filtroAvulso = 'Todos';
+
+function renderAvulsos() {
+  // filter buttons
+  document.getElementById('avulso-filter').innerHTML = AVULSO_STATUS.map(s=>
+    `<button class="${s===filtroAvulso?'active':''}" onclick="setFiltroAvulso('${s}')">${s}</button>`
+  ).join('');
+
+  const dados = filtroAvulso==='Todos' ? avulsos : avulsos.filter(a=>a.status===filtroAvulso);
+  const sorted = [...dados].sort((a,b)=>(b.dataPedido||'').localeCompare(a.dataPedido||''));
+
+  // mini metrics
+  const emAberto = avulsos.filter(a=>a.status==='Em andamento'||a.status==='Aguardando aprovação');
+  const totalPago = avulsos.filter(a=>a.status==='Pago').reduce((s,a)=>s+(+a.valor||0),0);
+  const totalPendente = avulsos.filter(a=>a.status!=='Pago'&&a.status!=='Cancelado').reduce((s,a)=>s+(+a.valor||0),0);
+  document.getElementById('avulsos-metrics').innerHTML = `
+    <div class="metric"><label>Em aberto</label><div class="val amber">${emAberto.length}</div></div>
+    <div class="metric"><label>Total recebido</label><div class="val green">${fmtBRL(totalPago)}</div></div>
+    <div class="metric"><label>A receber</label><div class="val amber">${fmtBRL(totalPendente)}</div></div>
+    <div class="metric"><label>Total cadastrado</label><div class="val">${avulsos.length}</div></div>
+  `;
+
+  const bc = s => `<span class="badge ${AVULSO_BADGE[s]||'b-doubt'}">${s}</span>`;
+  document.getElementById('avulsos-tbody').innerHTML = sorted.length ? sorted.map(a=>`
+    <tr>
+      <td><b>${a.cliente}</b></td>
+      <td>${a.descricao}</td>
+      <td class="tr">${fmtBRL(a.valor)}</td>
+      <td>${fmtDate(a.dataPedido)}</td>
+      <td>${fmtDate(a.dataEntrega)}</td>
+      <td>${bc(a.status)}</td>
+      <td style="max-width:130px;font-size:11px;color:var(--text2)">${a.obs||''}</td>
+      <td style="white-space:nowrap">
+        ${a.status!=='Pago'&&a.status!=='Cancelado'?`<button class="btn btn-sm b-ok" style="color:var(--green);border-color:var(--green-border);margin-right:4px" onclick="marcarAvulsoPago('${a.id}')" title="Marcar como pago"><i class="ti ti-check"></i></button>`:''}
+        <button class="btn btn-icon btn-sm" onclick="openModalAvulso('${a.id}')"><i class="ti ti-edit"></i></button>
+        <button class="btn btn-icon btn-sm btn-danger" onclick="deletarAvulso('${a.id}')"><i class="ti ti-trash"></i></button>
+      </td>
+    </tr>`).join('') :
+    `<tr><td colspan="8" style="text-align:center;color:var(--text3);padding:24px">Nenhum serviço avulso${filtroAvulso!=='Todos'?' com esse status':''}</td></tr>`;
+
+  const totalFiltro = dados.reduce((s,a)=>s+(+a.valor||0),0);
+  document.getElementById('avulsos-total').innerHTML = dados.length ? `${dados.length} registro(s) — Total: <b>${fmtBRL(totalFiltro)}</b>` : '';
+}
+
+function setFiltroAvulso(s) { filtroAvulso=s; renderAvulsos(); }
+
+function openModalAvulso(id) {
+  const a = id ? avulsos.find(x=>x.id===id) : null;
+  document.getElementById('av-id').value = a?a.id:'';
+  document.getElementById('modal-avulso-title').textContent = a?'Editar serviço':'Novo serviço avulso';
+
+  // populate datalist with all known client names
+  const todosNomes = [...new Set([...clientes.map(c=>c.nome),...possiveis.map(p=>p.nome),...avulsos.map(av=>av.cliente)])].filter(Boolean);
+  document.getElementById('av-cliente-list').innerHTML = todosNomes.map(n=>`<option value="${n}">`).join('');
+
+  document.getElementById('av-cliente').value = a?a.cliente:'';
+  document.getElementById('av-descricao').value = a?a.descricao:'';
+  document.getElementById('av-valor').value = a?a.valor:'';
+  document.getElementById('av-status').value = a?a.status:'Em andamento';
+  document.getElementById('av-forma').value = a?(a.forma||'Pix'):'Pix';
+  document.getElementById('av-data-pedido').value = a?a.dataPedido:new Date().toISOString().slice(0,10);
+  document.getElementById('av-data-entrega').value = a?a.dataEntrega:'';
+  document.getElementById('av-obs').value = a?a.obs:'';
+  openModal('modal-avulso');
+}
+
+function salvarAvulso() {
+  const id = document.getElementById('av-id').value;
+  const cliente = document.getElementById('av-cliente').value.trim();
+  const descricao = document.getElementById('av-descricao').value.trim();
+  if (!cliente || !descricao) { alert('Preencha cliente e descrição'); return; }
+  const obj = {
+    id: id||uid(), cliente, descricao,
+    valor: parseFloat(document.getElementById('av-valor').value)||0,
+    status: document.getElementById('av-status').value,
+    forma: document.getElementById('av-forma').value,
+    dataPedido: document.getElementById('av-data-pedido').value,
+    dataEntrega: document.getElementById('av-data-entrega').value,
+    obs: document.getElementById('av-obs').value.trim(),
+  };
+  if (id) avulsos = avulsos.map(a=>a.id===id?obj:a);
+  else avulsos.push(obj);
+  persist(); closeModal('modal-avulso'); renderAvulsos(); renderDash(); toast('Serviço salvo!');
+}
+
+function deletarAvulso(id) {
+  if (!confirm('Excluir serviço avulso?')) return;
+  avulsos = avulsos.filter(a=>a.id!==id);
+  persist(); renderAvulsos(); renderDash(); toast('Removido');
+}
+
+function marcarAvulsoPago(id) {
+  const a = avulsos.find(x=>x.id===id); if(!a) return;
+  a.status = 'Pago';
+  persist(); renderAvulsos(); renderDash(); toast(`${a.cliente} — serviço marcado como pago!`);
+}
+
 // ══════════════════════════════════ IMPORT / EXPORT ══════════════════════════
 function exportarJSON() {
-  const data={clientes,possiveis,pagamentos,postagens,ranking,exportado:new Date().toISOString()};
+  const data={clientes,possiveis,pagamentos,postagens,ranking,avulsos,exportado:new Date().toISOString()};
   const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
   const url=URL.createObjectURL(blob);
   const a=document.createElement('a'); a.href=url; a.download='gestao_clientes_backup.json'; a.click();
@@ -1050,6 +1225,7 @@ function lerImport(e) {
       if(d.pagamentos) pagamentos=d.pagamentos;
       if(d.postagens) postagens=d.postagens;
       if(d.ranking) ranking=d.ranking;
+      if(d.avulsos) avulsos=d.avulsos;
       persist();
       const active=document.querySelector('.nav button.active');
       if(active) active.click();
