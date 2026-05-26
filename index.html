@@ -264,7 +264,7 @@ a:hover { text-decoration: underline; }
       <div class="form-group"><label>Nome</label><input id="cli-nome" placeholder="Nome do cliente"></div>
       <div class="form-group"><label>Status</label>
         <select id="cli-status">
-          <option>Ativo</option><option>Em Teste</option><option>Inativo</option>
+          <option>Ativo</option><option>Em Teste</option><option>Inadimplente</option><option>Inativo</option>
         </select>
       </div>
     </div>
@@ -498,7 +498,7 @@ function toast(msg, dur=2200) {
 function fmtBRL(n) { return 'R$ ' + (+n||0).toLocaleString('pt-BR',{minimumFractionDigits:0,maximumFractionDigits:0}); }
 function fmtDate(s) { if (!s) return '—'; const d = new Date(s+'T12:00:00'); return d.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'2-digit'}); }
 function statusBadge(s) {
-  const map = {Pago:'b-ok',Pendente:'b-test',Atrasado:'b-red',Cancelado:'b-doubt','Em Teste':'b-test',Ativo:'b-ok',Inativo:'b-doubt',Aguardando:'b-wait',Dúvida:'b-doubt',Teste:'b-test',Negociação:'b-wait',Perdido:'b-red','Sem contrato':'b-doubt'};
+  const map = {Pago:'b-ok',Pendente:'b-test',Atrasado:'b-red',Cancelado:'b-doubt','Em Teste':'b-test',Ativo:'b-ok',Inativo:'b-doubt',Inadimplente:'b-red',Aguardando:'b-wait',Dúvida:'b-doubt',Teste:'b-test',Negociação:'b-wait',Perdido:'b-red','Sem contrato':'b-doubt'};
   return `<span class="badge ${map[s]||'b-doubt'}">${s}</span>`;
 }
 
@@ -527,11 +527,26 @@ function renderDash() {
   // Alertas de vencimento próximo
   const hoje = now.toISOString().slice(0,10);
   const em5dias = new Date(now.getTime()+5*86400000).toISOString().slice(0,10);
-  const pagsPend = pagamentos.filter(p => p.status==='Pendente' || p.status==='Atrasado');
+  const dismissed = JSON.parse(localStorage.getItem('alertas_dispensados')||'[]');
+  const pagsPend = pagamentos.filter(p => (p.status==='Pendente' || p.status==='Atrasado') && !dismissed.includes(p.id));
   let alertHtml = '';
   pagsPend.forEach(p => {
-    if (p.venc && p.venc <= hoje) alertHtml += `<div class="alert alert-red"><i class="ti ti-alert-circle"></i> <b>${p.cliente}</b> — mensalidade de ${p.mes} <b>atrasada</b> (venceu ${fmtDate(p.venc)})</div>`;
-    else if (p.venc && p.venc <= em5dias) alertHtml += `<div class="alert alert-amber"><i class="ti ti-clock"></i> <b>${p.cliente}</b> — mensalidade de ${p.mes} vence em ${fmtDate(p.venc)}</div>`;
+    if (p.venc && p.venc <= hoje) {
+      alertHtml += `<div class="alert alert-red" id="alerta-${p.id}">
+        <i class="ti ti-alert-circle"></i>
+        <span><b>${p.cliente}</b> — mensalidade de ${p.mes} <b>atrasada</b> (venceu ${fmtDate(p.venc)})</span>
+        <div style="margin-left:auto;display:flex;gap:6px;flex-shrink:0">
+          <button class="btn btn-sm btn-danger" onclick="marcarInadimplente('${p.cliente}','${p.id}')" title="Marcar cliente como inadimplente"><i class="ti ti-user-x"></i> Inadimplente</button>
+          <button class="btn btn-sm" onclick="dispensarAlerta('${p.id}')" title="Dispensar aviso"><i class="ti ti-x"></i></button>
+        </div>
+      </div>`;
+    } else if (p.venc && p.venc <= em5dias) {
+      alertHtml += `<div class="alert alert-amber" id="alerta-${p.id}">
+        <i class="ti ti-clock"></i>
+        <span><b>${p.cliente}</b> — mensalidade de ${p.mes} vence em ${fmtDate(p.venc)}</span>
+        <button class="btn btn-sm" style="margin-left:auto;flex-shrink:0" onclick="dispensarAlerta('${p.id}')" title="Dispensar aviso"><i class="ti ti-x"></i></button>
+      </div>`;
+    }
   });
   document.getElementById('alertas-container').innerHTML = alertHtml;
 
@@ -568,7 +583,7 @@ function renderDash() {
 // ═════════════════════════════════ CLIENTES ══════════════════════════════════
 let filtroStatus = 'Todos';
 function renderClientes() {
-  const statusList = ['Todos','Ativo','Em Teste','Inativo'];
+  const statusList = ['Todos','Ativo','Em Teste','Inadimplente','Inativo'];
   document.getElementById('cli-filter').innerHTML = statusList.map(s=>`<button class="${s===filtroStatus?'active':''}" onclick="setFiltroStatus('${s}')">${s}</button>`).join('');
   const ativos = clientes.filter(c => filtroStatus==='Todos' || c.status===filtroStatus);
 
@@ -577,7 +592,8 @@ function renderClientes() {
     const siteHtml = c.site ? `<span class="info-item"><i class="ti ti-external-link"></i><a href="${c.site}" target="_blank">${c.plataforma||'Site'}</a></span>` : '';
     const contatoHtml = c.contato ? `<span class="info-item"><i class="ti ti-phone"></i>${c.contato}</span>` : '';
     const vencHtml = c.venc ? `<span class="info-item"><i class="ti ti-calendar"></i>Vence dia ${c.venc}</span>` : '';
-    return `<div class="card">
+    const inadBanner = c.status==='Inadimplente' ? `<div class="alert alert-red" style="margin-top:10px;margin-bottom:0"><i class="ti ti-alert-triangle"></i> <b>Inadimplente</b> — cobrar débitos pendentes antes de retomar serviços${c.debito?' — Débito: '+fmtBRL(c.debito):''}</div>` : '';
+    return `<div class="card" style="${c.status==='Inadimplente'?'border-color:var(--red-border)':''}">
       <div class="card-header">
         <span class="card-title">${c.nome}</span>
         <div class="card-actions">
@@ -588,6 +604,7 @@ function renderClientes() {
       </div>
       <div class="info-row">${svcTags}<span class="info-item"><i class="ti ti-currency-dollar"></i>${fmtBRL(c.valor)}/mês</span>${contatoHtml}${vencHtml}${siteHtml}</div>
       ${c.obs?`<div style="font-size:12px;color:var(--text2);margin-top:8px"><i class="ti ti-note"></i> ${c.obs}</div>`:''}
+      ${inadBanner}
     </div>`;
   }).join('') + `<button class="add-btn" onclick="openModalCliente()"><i class="ti ti-plus"></i> Adicionar cliente</button>` :
   `<div class="empty-state"><i class="ti ti-users"></i>Nenhum cliente com esse filtro</div><button class="add-btn" onclick="openModalCliente()"><i class="ti ti-plus"></i> Adicionar cliente</button>`;
@@ -724,7 +741,7 @@ function converterParaAtivo(id) {
     id:uid(), nome:p.nome, status:'Ativo', servicos:svcArr,
     valor:p.valor||0, venc:null, contato:p.contato||'',
     inicio:new Date().toISOString().slice(0,10), site:p.site||'',
-    plataforma:'', contrato:'Pendente', obs:p.obs||''
+    plataforma:'', contrato:'Pendente', obs:p.obs||'', debito:0
   });
   possiveis=possiveis.filter(x=>x.id!==id);
   persist(); renderClientes(); toast(`${p.nome} adicionado como cliente ativo!`);
@@ -1041,6 +1058,31 @@ function lerImport(e) {
   };
   reader.readAsText(file);
   e.target.value='';
+}
+
+// ══════════════════════════════════ INADIMPLENTE / ALERTAS ═══════════════════
+function dispensarAlerta(pagId) {
+  const list = JSON.parse(localStorage.getItem('alertas_dispensados')||'[]');
+  if (!list.includes(pagId)) list.push(pagId);
+  localStorage.setItem('alertas_dispensados', JSON.stringify(list));
+  const el = document.getElementById('alerta-'+pagId);
+  if (el) el.style.display='none';
+  toast('Aviso dispensado');
+}
+
+function marcarInadimplente(nomeCliente, pagId) {
+  const c = clientes.find(x=>x.nome===nomeCliente);
+  if (!c) return;
+  const debitoTotal = pagamentos.filter(p=>p.cliente===nomeCliente&&(p.status==='Pendente'||p.status==='Atrasado')).reduce((a,p)=>a+p.valor,0);
+  if (!confirm(`Marcar "${nomeCliente}" como Inadimplente?\nDébito pendente: R$ ${debitoTotal}\n\nO cliente ficará visível na aba Clientes com o aviso de débito.`)) return;
+  c.status = 'Inadimplente';
+  c.debito = debitoTotal;
+  if (c.obs) c.obs += ` | Marcado inadimplente em ${new Date().toLocaleDateString('pt-BR')}.`;
+  else c.obs = `Marcado inadimplente em ${new Date().toLocaleDateString('pt-BR')}.`;
+  dispensarAlerta(pagId);
+  persist();
+  renderDash();
+  toast(`${nomeCliente} marcado como inadimplente`, 3000);
 }
 
 // ══════════════════════════════════ INIT ═════════════════════════════════════
